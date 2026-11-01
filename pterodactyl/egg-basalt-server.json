@@ -1,0 +1,83 @@
+{
+  "_comment": "DO NOT EDIT: FILE GENERATED AUTOMATICALLY BY PTERODACTYL PANEL - PTERODACTYL.IO",
+  "meta": {
+    "version": "PTDL_v2",
+    "update_url": null
+  },
+  "exported_at": "2026-10-31T18:07:31+00:00",
+  "name": "Basalt Server",
+  "author": "oscargarciasoriano@outlook.com",
+  "description": "Basalt Server is a Minecraft server rewritten from scratch in C++23, shipped as a native binary with no external JVM. This egg downloads the prebuilt binary from GitHub Releases.",
+  "features": null,
+  "docker_images": {
+    "Debian": "ghcr.io/parkervcp/yolks:debian",
+    "Ubuntu": "ghcr.io/parkervcp/yolks:ubuntu"
+  },
+  "file_denylist": [],
+  "startup": "bash ./start.sh",
+  "config": {
+    "files": "{}",
+    "startup": "{\n    \"done\": \"Done (\"\n}",
+    "logs": "{}",
+    "stop": "stop"
+  },
+  "scripts": {
+    "installation": {
+      "script": "#!/bin/ash\nset -eu\n\napk add --no-cache curl jq coreutils\nmkdir -p /mnt/server\ncd /mnt/server\n\ncase \"$(uname -m)\" in\n    x86_64|amd64) ARCH=\"x64\" ;;\n    aarch64|arm64) ARCH=\"arm64\" ;;\n    *) echo \"Unsupported architecture: $(uname -m)\"; exit 1 ;;\nesac\n\nREPO=\"${GITHUB_PACKAGE:-BasaltProject/Server}\"\nTAG=\"${VERSION:-latest}\"\nSUMS_URL=\"\"\n\nif [ -n \"${DOWNLOAD_URL:-}\" ]; then\n    URL=\"$DOWNLOAD_URL\"\nelse\n    # Asset names carry the build version, so they have to be looked up.\n    if [ \"$TAG\" = \"latest\" ]; then\n        API=\"https://api.github.com/repos/${REPO}/releases/latest\"\n    else\n        API=\"https://api.github.com/repos/${REPO}/releases/tags/${TAG}\"\n    fi\n    RELEASE=$(curl -fsSL -H \"Accept: application/vnd.github+json\" \"$API\")\n    URL=$(echo \"$RELEASE\" | jq -r --arg arch \"$ARCH\" '[.assets[] | select(.name | test(\"^BasaltServer-.*-Linux-\" + $arch + \"$\"))][0].browser_download_url // empty')\n    SUMS_URL=$(echo \"$RELEASE\" | jq -r '[.assets[] | select(.name == \"SHA256SUMS\")][0].browser_download_url // empty')\n    TAG=$(echo \"$RELEASE\" | jq -r '.tag_name')\n    if [ -z \"$URL\" ]; then\n        echo \"No Linux ${ARCH} binary found in release ${TAG} of ${REPO}\"\n        exit 1\n    fi\nfi\n\necho \"Downloading Basalt Server from: $URL\"\ncurl -fsSL \"$URL\" -o basalt.new\n\nif [ -n \"$SUMS_URL\" ]; then\n    EXPECTED=$(curl -fsSL \"$SUMS_URL\" | awk -v name=\"$(basename \"$URL\")\" '$2 == name { print $1 }')\n    if [ -z \"$EXPECTED\" ]; then\n        echo \"$(basename \"$URL\") is not listed in SHA256SUMS\"\n        rm -f basalt.new\n        exit 1\n    fi\n    echo \"$EXPECTED  basalt.new\" | sha256sum -c -\nfi\n\nmv basalt.new basalt\nchmod +x basalt\n\n# A full template keeps the documented options of every table in one place. If it\n# cannot be fetched, start.sh seeds a minimal file and Basalt completes it.\nif [ -z \"${DOWNLOAD_URL:-}\" ] && [ ! -f config/server.toml ]; then\n    mkdir -p config\n    curl -fsSL \"https://raw.githubusercontent.com/${REPO}/${TAG}/server-runtime/resources/config-defaults/server.toml\" \\\n        -o config/server.toml || rm -f config/server.toml\nfi\n\ncat > start.sh <<'START'\n#!/bin/bash\n# Written by the egg on install and replaced on reinstall. Each start pins the\n# ports to the panel allocation, so port edits in config/server.toml do not last.\nCONFIG=config/server.toml\nBEDROCK=$([ \"${BEDROCK_ENABLED:-0}\" = \"1\" ] && echo true || echo false)\n\nif [ ! -f \"$CONFIG\" ]; then\n    # Basalt appends every missing option to this file on its first start.\n    mkdir -p config\n    printf '[network.java]\\nport = %s\\n\\n[network.bedrock]\\nenabled = %s\\nport = %s\\n' \\\n        \"$SERVER_PORT\" \"$BEDROCK\" \"$SERVER_PORT\" > \"$CONFIG\"\nelse\n    sed -i \\\n        -e \"/^\\[network\\.java\\]/,/^\\[/ s/^port *=.*/port = ${SERVER_PORT}/\" \\\n        -e \"/^\\[network\\.bedrock\\]/,/^\\[/ s/^port *=.*/port = ${SERVER_PORT}/\" \\\n        -e \"/^\\[network\\.bedrock\\]/,/^\\[/ s/^enabled *=.*/enabled = ${BEDROCK}/\" \\\n        \"$CONFIG\"\nfi\n\nif [ \"${EULA:-0}\" = \"1\" ]; then\n    exec ./basalt --accept-eula\nfi\nexec ./basalt\nSTART\nchmod +x start.sh\n\necho \"Basalt Server installed.\"\n",
+      "container": "ghcr.io/pterodactyl/installers:alpine",
+      "entrypoint": "ash"
+    }
+  },
+  "variables": [
+    {
+      "name": "Accept Minecraft EULA",
+      "description": "Set to 1 to accept the Minecraft EULA (https://www.minecraft.net/en-us/eula). The server will not start until it is accepted.",
+      "env_variable": "EULA",
+      "default_value": "0",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:0,1",
+      "field_type": "text"
+    },
+    {
+      "name": "Bedrock Support",
+      "description": "Set to 1 to accept Bedrock clients on the primary allocation port (UDP), 0 to disable them. With Bedrock on, do not enable [network.query] on that same port.",
+      "env_variable": "BEDROCK_ENABLED",
+      "default_value": "1",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|in:0,1",
+      "field_type": "text"
+    },
+    {
+      "name": "Basalt Version",
+      "description": "Release tag to install: latest (newest stable release), nightly (development builds) or a specific tag such as v26.3.1.\nScope: installation",
+      "env_variable": "VERSION",
+      "default_value": "latest",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|max:64",
+      "field_type": "text"
+    },
+    {
+      "name": "GitHub Repository",
+      "description": "GitHub repository in owner/repo format to download releases from. Useful if you are using a fork.\nScope: installation",
+      "env_variable": "GITHUB_PACKAGE",
+      "default_value": "BasaltProject/Server",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "required|string|max:128",
+      "field_type": "text"
+    },
+    {
+      "name": "Direct Download URL",
+      "description": "Direct URL to a Linux Basalt binary. Overrides the version and repository, and skips the checksum check.\nScope: installation",
+      "env_variable": "DOWNLOAD_URL",
+      "default_value": "",
+      "user_viewable": true,
+      "user_editable": true,
+      "rules": "nullable|string",
+      "field_type": "text"
+    }
+  ]
+}
